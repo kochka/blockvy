@@ -42,6 +42,36 @@
 </head>
 <body>
     <div id="loading">Loading Blockvy…</div>
+    <script>
+        // Browsers suspend any AudioContext created before the first user
+        // gesture (autoplay policy). Bevy/cpal builds the context during wasm
+        // init, so it stays suspended forever unless we resume it ourselves.
+        // Intercept construction to track every context, then resume them
+        // all on the first click/keydown/touch.
+        (function () {
+            const Orig = window.AudioContext || window.webkitAudioContext;
+            if (!Orig) return;
+            const contexts = [];
+            const Patched = function (...args) {
+                const ctx = new Orig(...args);
+                contexts.push(ctx);
+                return ctx;
+            };
+            Patched.prototype = Orig.prototype;
+            window.AudioContext = Patched;
+            if (window.webkitAudioContext) window.webkitAudioContext = Patched;
+
+            const resumeAll = () => {
+                for (const ctx of contexts) {
+                    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+                }
+            };
+            const events = ['click', 'keydown', 'touchstart', 'pointerdown'];
+            for (const ev of events) {
+                window.addEventListener(ev, resumeAll, { passive: true });
+            }
+        })();
+    </script>
     <script type="module">
         import init from './blockvy.js';
         init().then(() => {
