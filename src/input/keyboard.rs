@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::audio::PlaySfx;
 use crate::board::{
-    ActivePiece, Board, PieceLocked, can_place, finalize_lock, hard_drop, try_rotate,
+    ActivePiece, Board, PieceLocked, can_place, hard_drop, resolve_lock, try_rotate,
     try_step_down,
 };
 use crate::game::GameRules;
@@ -37,6 +37,7 @@ pub fn handle_input(
     mut bag: ResMut<SevenBag>,
     mut lock_events: MessageWriter<PieceLocked>,
     mut sfx: MessageWriter<PlaySfx>,
+    mut commands: Commands,
 ) {
     let Some(mut piece) = active_piece else {
         return;
@@ -60,12 +61,19 @@ pub fn handle_input(
         *piece = rotated;
     }
 
-    // Hard drop — snaps to floor, then locks and respawns immediately.
+    // Hard drop — snaps to floor, then locks. If the lock completes lines
+    // it enters the line-clear delay (ActivePiece removed, animation plays);
+    // otherwise the next piece spawns immediately.
     if rules.hard_drop_enabled && keys.just_pressed(KeyCode::Space) {
         sfx.write(PlaySfx::HardDrop);
         *piece = hard_drop(&piece, &board);
-        let outcome = finalize_lock(&mut piece, &mut board, &mut bag);
-        lock_events.write(PieceLocked { outcome });
+        resolve_lock(
+            &mut piece,
+            &mut board,
+            &mut bag,
+            &mut lock_events,
+            &mut commands,
+        );
         // Skip the rest of this frame's input on the fresh piece — keys held
         // during a hard drop shouldn't carry over to the newly spawned piece.
         return;

@@ -24,7 +24,7 @@ impl Default for GameRules {
         Self {
             hard_drop_enabled: true,
             hold_enabled: false,
-            ghost_enabled: true,
+            ghost_enabled: false,
             wall_kicks: WallKickMode::Srs,
         }
     }

@@ -3,6 +3,10 @@ use bevy::prelude::*;
 use crate::game::GameState;
 
 use super::board_render::render_board;
+use super::clear_animation::{
+    ClearLineMaterial, despawn_clear_line_overlays, spawn_clear_line_overlays,
+    update_clear_line_overlays,
+};
 use super::game_over::{despawn_game_over_overlay, spawn_game_over_overlay};
 use super::home::{despawn_home_overlay, home_button_system, home_keyboard, spawn_home_overlay};
 use super::layout::spawn_layout;
@@ -19,7 +23,8 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (spawn_camera, spawn_layout))
+        app.add_plugins(UiMaterialPlugin::<ClearLineMaterial>::default())
+            .add_systems(Startup, (spawn_camera, spawn_layout))
             .add_systems(
                 Update,
                 (
@@ -27,6 +32,12 @@ impl Plugin for UiPlugin {
                     update_score_panel,
                     update_next_preview,
                     update_button_visuals,
+                    // Clear-line overlay lifecycle. Spawn must run before
+                    // update so the freshly created strips get their first
+                    // progress value the same frame.
+                    spawn_clear_line_overlays,
+                    update_clear_line_overlays.after(spawn_clear_line_overlays),
+                    despawn_clear_line_overlays.after(update_clear_line_overlays),
                 ),
             )
             .add_systems(OnEnter(GameState::Home), spawn_home_overlay)

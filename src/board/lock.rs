@@ -1,5 +1,17 @@
-//! Piece locking: stamp the active piece into the board, clear filled lines,
-//! and draw the next piece in place.
+//! Piece locking: stamp the active piece into the board, detect completed
+//! lines, and draw the next piece from the bag.
+//!
+//! The cycle is split so the visual layer can hold the completed rows on
+//! screen briefly (see `board/clear_delay.rs`):
+//!
+//! 1. [`stamp_lock`] writes the piece into the board and reports which rows
+//!    just became full — without clearing them.
+//! 2. [`draw_next_piece`] pulls the next tetromino from the bag and reports
+//!    whether it tops out on spawn.
+//!
+//! [`finalize_lock`] wires both together (plus [`clear_full_lines`]) for
+//! callers that don't want a clear-delay pause — currently the tests, and
+//! the immediate path when no line was completed.
 
 use bevy::prelude::*;
 
@@ -8,17 +20,31 @@ use crate::pieces::SevenBag;
 use super::active_piece::ActivePiece;
 use super::collision::can_place;
 use super::grid::Board;
-use super::lines::clear_full_lines;
+use super::lines::{ClearedRows, clear_full_lines, detect_full_rows};
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct LockOutcome {
     pub lines_cleared: u32,
+    /// Row indices of the cleared lines in the pre-clear frame. `None`
+    /// marks unused slots (up to 4 rows can be cleared at once).
+    pub cleared_rows: ClearedRows,
     pub topped_out: bool,
 }
 
-/// Fired after a piece has been locked into the board. Lets higher-level
-/// systems (score, sound, particles) react without coupling them to the
-/// gravity/input systems that trigger the lock.
+impl Default for LockOutcome {
+    fn default() -> Self {
+        Self {
+            lines_cleared: 0,
+            cleared_rows: [None; 4],
+            topped_out: false,
+        }
+    }
+}
+
+/// Fired after a piece has been locked into the board **and** any line
+/// clearing has resolved. Higher-level systems (score, sound, particles,
+/// game-over transition) react to this — the delay introduced by the
+/// clear animation is invisible to them.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct PieceLocked {
     pub outcome: LockOutcome,
@@ -34,33 +60,42 @@ pub fn lock_piece(board: &mut Board, piece: &ActivePiece) {
     }
 }
 
-/// Full lock cycle: writes the piece into the board, clears completed lines,
-/// draws the next piece from the bag, and assigns it to `piece` in place.
-///
-/// `topped_out` is true when the freshly drawn piece either overlaps the
-/// stack at its spawn origin or cannot descend one row into the playfield —
-/// the canonical block-out condition. Recovery (board wipe, state change) is
-/// the caller's responsibility.
+/// Writes the piece into the board and returns the rows that just became
+/// full — *without* clearing them. The caller decides when to actually
+/// collapse the stack (immediately, or after a short delay for the
+/// clear-line animation).
+pub fn stamp_lock(board: &mut Board, piece: &ActivePiece) -> ClearedRows {
+    lock_piece(board, piece);
+    detect_full_rows(board)
+}
+
+/// Pulls the next tetromino from the bag. Returns the spawned piece and
+/// whether it tops out: block-out is checked by attempting to descend one
+/// row into the visible playfield, since bare spawn always succeeds in
+/// the buffer.
+pub fn draw_next_piece(bag: &mut SevenBag, board: &Board) -> (ActivePiece, bool) {
+    let kind = bag.next();
+    let next_piece = ActivePiece::new(kind, kind.spawn_origin());
+    let topped_out =
+        !can_place(&next_piece, board) || !can_place(&next_piece.moved_down(), board);
+    (next_piece, topped_out)
+}
+
+/// Atomic lock cycle for callers that don't want to defer the clear.
+/// Currently used by tests and by the "no lines to clear" fast path.
 pub fn finalize_lock(
     piece: &mut ActivePiece,
     board: &mut Board,
     bag: &mut SevenBag,
 ) -> LockOutcome {
-    lock_piece(board, piece);
+    let cleared_rows = stamp_lock(board, piece);
     let lines_cleared = clear_full_lines(board);
-
-    let next_kind = bag.next();
-    let next_piece = ActivePiece::new(next_kind, next_kind.spawn_origin());
-    // Spawn pieces sit in the buffer (y >= 20) so `can_place(next_piece)`
-    // alone never fails — it's the first attempted descent that exposes a
-    // stack reaching into the spawn columns.
-    let topped_out = !can_place(&next_piece, board)
-        || !can_place(&next_piece.moved_down(), board);
-
+    let (next_piece, topped_out) = draw_next_piece(bag, board);
     *piece = next_piece;
 
     LockOutcome {
         lines_cleared,
+        cleared_rows,
         topped_out,
     }
 }
@@ -98,6 +133,27 @@ mod tests {
     }
 
     #[test]
+    fn stamp_lock_reports_cleared_rows_without_clearing() {
+        let mut board = Board::default();
+        for x in 0..BOARD_WIDTH as i32 {
+            if x != 5 {
+                board.set(x, 0, TetrominoKind::I);
+            }
+        }
+        // Vertical I plugs (5,0..3) — completes row 0.
+        let mut piece = ActivePiece::new(TetrominoKind::I, IVec2::new(3, 0));
+        piece.rotation = crate::pieces::Rotation::East;
+
+        let rows = stamp_lock(&mut board, &piece);
+        assert_eq!(rows[0], Some(0));
+        assert_eq!(rows[1], None);
+        // Row 0 must STILL be full — stamp_lock only detects.
+        for x in 0..BOARD_WIDTH as i32 {
+            assert!(board.get(x, 0).is_some());
+        }
+    }
+
+    #[test]
     fn finalize_lock_flags_top_out_when_stack_blocks_spawn_columns() {
         // Fill row 19 across the spawn columns (3..=6). The next piece —
         // whichever kind — has at least one block in those columns when
@@ -132,6 +188,7 @@ mod tests {
         let outcome = finalize_lock(&mut piece, &mut board, &mut bag);
 
         assert_eq!(outcome.lines_cleared, 1);
+        assert_eq!(outcome.cleared_rows[0], Some(0));
         assert!(!outcome.topped_out);
         // Row 0 has been cleared, three vertical I blocks dropped one row to y = 0,1,2.
         assert_eq!(board.get(5, 0), Some(TetrominoKind::I));

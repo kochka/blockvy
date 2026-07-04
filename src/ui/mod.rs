@@ -2,6 +2,7 @@ mod block_color;
 mod block_sprite;
 mod board_panel;
 mod board_render;
+mod clear_animation;
 mod game_over;
 mod home;
 mod layout;

@@ -9,9 +9,10 @@ use bevy::prelude::*;
 use crate::pieces::SevenBag;
 
 use super::active_piece::ActivePiece;
+use super::clear_delay::PendingLineClear;
 use super::collision::can_place;
 use super::grid::Board;
-use super::lock::{PieceLocked, finalize_lock};
+use super::lock::{LockOutcome, PieceLocked, draw_next_piece, stamp_lock};
 
 /// Level-indexed gravity interval (milliseconds). Roughly NES-style: level
 /// 1 ≈ 800 ms, halving every ~3 levels until 20+. The score level is
@@ -45,6 +46,7 @@ pub fn apply_gravity(
     mut board: ResMut<Board>,
     mut bag: ResMut<SevenBag>,
     mut lock_events: MessageWriter<PieceLocked>,
+    mut commands: Commands,
 ) {
     timer.0.tick(time.delta());
 
@@ -54,11 +56,44 @@ pub fn apply_gravity(
 
     for _ in 0..timer.0.times_finished_this_tick() {
         if !try_step_down(&mut piece, &board) {
-            let outcome = finalize_lock(&mut piece, &mut board, &mut bag);
-            lock_events.write(PieceLocked { outcome });
+            resolve_lock(
+                &mut piece,
+                &mut board,
+                &mut bag,
+                &mut lock_events,
+                &mut commands,
+            );
             return;
         }
     }
+}
+
+/// Locks the piece and either finishes immediately (no completed rows) or
+/// hands control off to the line-clear delay (rows detected). Kept public
+/// so the input layer's hard-drop path can share the same resolution.
+pub fn resolve_lock(
+    piece: &mut ActivePiece,
+    board: &mut Board,
+    bag: &mut SevenBag,
+    lock_events: &mut MessageWriter<PieceLocked>,
+    commands: &mut Commands,
+) {
+    let cleared_rows = stamp_lock(board, piece);
+    if cleared_rows.iter().any(Option::is_some) {
+        commands.remove_resource::<ActivePiece>();
+        commands.insert_resource(PendingLineClear::new(cleared_rows));
+        return;
+    }
+
+    let (next_piece, topped_out) = draw_next_piece(bag, board);
+    *piece = next_piece;
+    lock_events.write(PieceLocked {
+        outcome: LockOutcome {
+            lines_cleared: 0,
+            cleared_rows,
+            topped_out,
+        },
+    });
 }
 
 /// Attempts to move the piece down by one row. Returns `true` and mutates

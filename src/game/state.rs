@@ -23,7 +23,7 @@
 
 use bevy::prelude::*;
 
-use crate::board::{ActivePiece, Board, GravityTimer, PieceLocked};
+use crate::board::{ActivePiece, Board, GravityTimer, PendingLineClear, PieceLocked};
 use crate::pieces::SevenBag;
 
 use super::score::Score;
@@ -97,15 +97,21 @@ pub fn start_run(
     *bag = SevenBag::new();
     *score = Score::default();
     *gravity = GravityTimer::default();
+    // A restart mid-clear must not leave the row-clear timer hanging: it
+    // would fire on the fresh board and spawn a bonus piece.
+    commands.remove_resource::<PendingLineClear>();
     let kind = bag.next();
     commands.insert_resource(ActivePiece::new(kind, kind.spawn_origin()));
 }
 
 /// Removes the active piece on entering GameOver. Gravity and input
 /// early-return on a missing piece, so this is enough to freeze gameplay
-/// without gating their systems on the state.
+/// without gating their systems on the state. A pending line-clear from
+/// the final lock is also dropped — its overlay is a visual artefact and
+/// the game-over screen should take over the board immediately.
 pub fn on_game_over_enter(mut commands: Commands) {
     commands.remove_resource::<ActivePiece>();
+    commands.remove_resource::<PendingLineClear>();
 }
 
 /// Keyboard shortcuts available while the GameOver overlay is up.
