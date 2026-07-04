@@ -1,0 +1,63 @@
+[package]
+name = "blockvy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Bevy with no default features so platform-specific bits can be split per
+# target. The umbrellas in [target.*.dependencies] below pull in what each
+# target needs. Custom WGSL shaders for 2D still work through `Material2d`
+# (in `bevy_sprite`); add `bevy_post_process` later for full-screen passes.
+bevy = { version = "0.19", default-features = false }
+rand = "0.9"
+
+# Native: full Bevy umbrellas. `2d` + `ui` include `default_platform`,
+# which brings in winit, fonts, clipboard, gilrs, x11/wayland AND
+# `multi_threaded` — everything desktop expects. `bevy_settings` opts in
+# to Bevy's built-in settings-file framework (see `crate::persistence`).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bevy = { version = "0.19", default-features = false, features = [
+    "2d",
+    "ui",
+    "audio",
+    "bevy_settings",
+] }
+
+# Web: assembled by hand because `default_platform` (pulled in by the
+# `2d` and `ui` umbrellas) includes `multi_threaded`, which fails to
+# compile on `wasm32-unknown-unknown`. We reuse the *_bevy_render
+# umbrellas — they pull in render + sprite + ui + text + image — and
+# add the platform bits Bevy still needs on web.
+#
+# `getrandom` is overridden so `StdRng::from_os_rng()` doesn't panic
+# at boot in the browser. Swap `webgl2` for `webgpu` if you decide
+# to target Chrome 113+ only.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+bevy = { version = "0.19", default-features = false, features = [
+    "default_app",
+    "2d_bevy_render",
+    "ui_bevy_render",
+    "ui_picking",
+    "bevy_winit",
+    "bevy_audio",
+    "default_font",
+    "vorbis",
+    "keyboard",
+    "mouse",
+    "webgl2",
+    "web",
+    "bevy_settings",
+] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+# Smaller wasm bundle: trades a bit of speed for size.
+#   cargo build --profile release-web --target wasm32-unknown-unknown
+[profile.release-web]
+inherits = "release"
+opt-level = "s"
+strip = true
