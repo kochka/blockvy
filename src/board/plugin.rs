@@ -5,7 +5,7 @@ use crate::game::GameState;
 use super::clear_delay::progress_pending_line_clear;
 use super::gravity::{GravityTimer, apply_gravity};
 use super::grid::Board;
-use super::lock::PieceLocked;
+use super::lock::{LinesClearing, PieceLocked};
 
 pub struct BoardPlugin;
 
@@ -14,6 +14,7 @@ impl Plugin for BoardPlugin {
         app.init_resource::<Board>()
             .init_resource::<GravityTimer>()
             .add_message::<PieceLocked>()
+            .add_message::<LinesClearing>()
             .add_systems(
                 Update,
                 (

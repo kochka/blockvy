@@ -12,7 +12,7 @@ use super::active_piece::ActivePiece;
 use super::clear_delay::PendingLineClear;
 use super::collision::can_place;
 use super::grid::Board;
-use super::lock::{LockOutcome, PieceLocked, draw_next_piece, stamp_lock};
+use super::lock::{LinesClearing, LockOutcome, PieceLocked, draw_next_piece, stamp_lock};
 
 /// Level-indexed gravity interval (milliseconds). Roughly NES-style: level
 /// 1 ≈ 800 ms, halving every ~3 levels until 20+. The score level is
@@ -46,6 +46,7 @@ pub fn apply_gravity(
     mut board: ResMut<Board>,
     mut bag: ResMut<SevenBag>,
     mut lock_events: MessageWriter<PieceLocked>,
+    mut clearing_events: MessageWriter<LinesClearing>,
     mut commands: Commands,
 ) {
     timer.0.tick(time.delta());
@@ -61,6 +62,7 @@ pub fn apply_gravity(
                 &mut board,
                 &mut bag,
                 &mut lock_events,
+                &mut clearing_events,
                 &mut commands,
             );
             return;
@@ -71,15 +73,23 @@ pub fn apply_gravity(
 /// Locks the piece and either finishes immediately (no completed rows) or
 /// hands control off to the line-clear delay (rows detected). Kept public
 /// so the input layer's hard-drop path can share the same resolution.
+///
+/// When rows are cleared this emits a [`LinesClearing`] on the same frame
+/// as the visual impact (audio, particles), and defers the [`PieceLocked`]
+/// until the delay expires so score/game-over see the fully resolved
+/// state.
 pub fn resolve_lock(
     piece: &mut ActivePiece,
     board: &mut Board,
     bag: &mut SevenBag,
     lock_events: &mut MessageWriter<PieceLocked>,
+    clearing_events: &mut MessageWriter<LinesClearing>,
     commands: &mut Commands,
 ) {
     let cleared_rows = stamp_lock(board, piece);
-    if cleared_rows.iter().any(Option::is_some) {
+    let lines_cleared = cleared_rows.iter().filter(|r| r.is_some()).count() as u32;
+    if lines_cleared > 0 {
+        clearing_events.write(LinesClearing { lines_cleared });
         commands.remove_resource::<ActivePiece>();
         commands.insert_resource(PendingLineClear::new(cleared_rows));
         return;

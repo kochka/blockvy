@@ -20,7 +20,7 @@ use bevy::audio::{
 };
 use bevy::prelude::*;
 
-use crate::board::PieceLocked;
+use crate::board::{LinesClearing, PieceLocked};
 use crate::game::{GameState, ResumeFromPause, Score};
 
 pub struct AudioPlugin;
@@ -69,7 +69,15 @@ impl Plugin for AudioPlugin {
             .init_resource::<SfxHandles>()
             .init_resource::<MusicHandles>()
             .add_systems(Startup, preload_audio)
-            .add_systems(Update, (emit_lock_sfx, emit_level_up_sfx, play_sfx_events))
+            .add_systems(
+                Update,
+                (
+                    emit_lock_sfx,
+                    emit_clear_sfx,
+                    emit_level_up_sfx,
+                    play_sfx_events,
+                ),
+            )
             // Music lifecycle wired to the state machine. `OnExit(Paused)`
             // decides between unpause and despawn based on `ResumeFromPause`
             // *before* `OnEnter(Playing)` runs, so the spawn-if-absent
@@ -97,22 +105,35 @@ fn preload_audio(
     music.game_theme = asset_server.load("music/game_theme_a.ogg");
 }
 
-/// Turns each `PieceLocked` into exactly one sound: top-out wins over any
-/// clear, a 4-line clear (Tetris) beats a 1-3 line clear, which beats a
-/// plain lock. Guarantees we never stack two lock-adjacent samples on the
-/// same frame.
+/// Reacts to the "lock finished" moment: game-over on a top-out, or a
+/// plain lock click when nothing cleared. Line-clear/Tetris samples are
+/// **not** triggered here — [`emit_clear_sfx`] fires them earlier, at
+/// the moment the piece visually impacts the stack, so the sound stays
+/// aligned with the flash instead of trailing 300 ms behind it.
 fn emit_lock_sfx(mut locks: MessageReader<PieceLocked>, mut sfx: MessageWriter<PlaySfx>) {
     for lock in locks.read() {
-        let event = if lock.outcome.topped_out {
-            PlaySfx::GameOver
+        if lock.outcome.topped_out {
+            sfx.write(PlaySfx::GameOver);
+        } else if lock.outcome.lines_cleared == 0 {
+            sfx.write(PlaySfx::Lock);
+        }
+    }
+}
+
+/// Fires the clear/tetris sample on the same frame as the piece impacts —
+/// i.e. when the [`LinesClearing`] message is written, at the start of
+/// the animation window.
+fn emit_clear_sfx(
+    mut clearing: MessageReader<LinesClearing>,
+    mut sfx: MessageWriter<PlaySfx>,
+) {
+    for event in clearing.read() {
+        let sample = if event.lines_cleared >= 4 {
+            PlaySfx::Tetris
         } else {
-            match lock.outcome.lines_cleared {
-                0 => PlaySfx::Lock,
-                1..=3 => PlaySfx::LineClear,
-                _ => PlaySfx::Tetris,
-            }
+            PlaySfx::LineClear
         };
-        sfx.write(event);
+        sfx.write(sample);
     }
 }
 

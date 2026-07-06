@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::audio::PlaySfx;
 use crate::board::{
-    ActivePiece, Board, PieceLocked, can_place, hard_drop, resolve_lock, try_rotate,
+    ActivePiece, Board, LinesClearing, PieceLocked, can_place, hard_drop, resolve_lock, try_rotate,
     try_step_down,
 };
 use crate::game::GameRules;
@@ -36,6 +36,7 @@ pub fn handle_input(
     mut board: ResMut<Board>,
     mut bag: ResMut<SevenBag>,
     mut lock_events: MessageWriter<PieceLocked>,
+    mut clearing_events: MessageWriter<LinesClearing>,
     mut sfx: MessageWriter<PlaySfx>,
     mut commands: Commands,
 ) {
@@ -72,6 +73,7 @@ pub fn handle_input(
             &mut board,
             &mut bag,
             &mut lock_events,
+            &mut clearing_events,
             &mut commands,
         );
         // Skip the rest of this frame's input on the fresh piece — keys held

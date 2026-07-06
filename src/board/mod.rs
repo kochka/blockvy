@@ -18,6 +18,6 @@ pub use grid::{
     BOARD_BUFFER_HEIGHT, BOARD_HEIGHT, BOARD_VISIBLE_HEIGHT, BOARD_WIDTH, Board, cell_to_world,
 };
 pub use lines::clear_full_lines;
-pub use lock::{LockOutcome, PieceLocked, finalize_lock, lock_piece};
+pub use lock::{LinesClearing, LockOutcome, PieceLocked, finalize_lock, lock_piece};
 pub use plugin::BoardPlugin;
 pub use rotation::try_rotate;

@@ -42,12 +42,21 @@ impl Default for LockOutcome {
 }
 
 /// Fired after a piece has been locked into the board **and** any line
-/// clearing has resolved. Higher-level systems (score, sound, particles,
-/// game-over transition) react to this — the delay introduced by the
-/// clear animation is invisible to them.
+/// clearing has resolved. Score, game-over and any system that reacts
+/// to the "lock finished" moment listen here — the delay introduced by
+/// the clear animation is invisible to them.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct PieceLocked {
     pub outcome: LockOutcome,
+}
+
+/// Fired the frame a piece locks with at least one completed row —
+/// *before* the clear animation runs. It lets audio/particles fire on
+/// the actual visual impact instead of 300 ms later when the row
+/// physically disappears (see `board/clear_delay.rs`).
+#[derive(Message, Debug, Clone, Copy)]
+pub struct LinesClearing {
+    pub lines_cleared: u32,
 }
 
 /// Stamps every block of `piece` into `board`. Blocks above the visible
