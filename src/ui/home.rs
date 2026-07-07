@@ -64,6 +64,7 @@ pub fn spawn_home_overlay(mut commands: Commands) {
             ));
             spawn_menu_button(root, "Start", HomeButton::Start);
             spawn_menu_button(root, "Options", HomeButton::Options);
+            #[cfg(not(target_arch = "wasm32"))]
             spawn_menu_button(root, "Quit", HomeButton::Quit);
         });
 }
